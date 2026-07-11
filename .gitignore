@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Env / secrets
+.env
+.env.local
+*.key
+
+# JAX / compilation caches
+.jax_cache/
+jax_cache/
+
+# Data & checkpoints (kept in Modal Volumes / cloud, not git)
+data/
+checkpoints/
+*.bin
+*.npy
+*.npz
+*.safetensors
+*.ckpt
+tokenizer.model
+
+# Experiment tracking / logs
+wandb/
+runs/
+logs/
+*.log
+
+# Tooling
+.ruff_cache/
+.pytest_cache/
+.pyright/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
