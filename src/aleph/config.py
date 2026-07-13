@@ -29,6 +29,9 @@ class ModelConfig:
     ffn_hidden: int = 1408       # SwiGLU inner width ≈ (8/3)·dim, rounded to 128·11
     n_experts: int = 8           # experts per MoE layer (drives TOTAL params)
     top_k: int = 1               # experts fired per token (drives ACTIVE params); 1→2 later
+    capacity_factor: float = 1.25  # slots per expert = cf · tokens / n_experts. >1 leaves
+    #                              # slack so a slightly-overloaded expert doesn't drop tokens;
+    #                              # overflow beyond capacity is dropped (residual carries it).
 
     # ── misc ─────────────────────────────────────────────────────────────────
     tie_embeddings: bool = True  # share embed & LM-head matrix — halves the 25.7M vocab tax
