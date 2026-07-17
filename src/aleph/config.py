@@ -3,17 +3,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """The single source of truth for aleph's shape.
-
-    Locked "tiny MoE" starter: ~170M total params, ~48M active per token.
-    Threaded into every module so the whole model is described by one object.
-
-    Two mental buckets to keep straight (see why they differ in the field notes):
-      • TOTAL params  → your training MEMORY wall (weights + grads + Adam moments).
-      • ACTIVE params → your training COMPUTE / step time / GPU bill (top-k routing
-                        only fires k experts per token, in fwd AND bwd).
-    """
-
     dim: int = 512
     n_layers: int = 8
     vocab_size: int = 50257
@@ -53,7 +42,6 @@ class ModelConfig:
 
     @property
     def total_params(self) -> int:
-        """Every param on the GPU — sets the training memory footprint."""
         per_block = self._attn_params + self.n_experts * self._expert_params
         per_block += self.dim * self.n_experts
         per_block += 2 * self.dim
@@ -61,7 +49,6 @@ class ModelConfig:
 
     @property
     def active_params(self) -> int:
-        """Params touched per token — sets the compute / FLOPs / cost."""
         per_block = self._attn_params + self.top_k * self._expert_params
         return self.n_layers * per_block + self._embed_params + self.dim
 
@@ -71,15 +58,6 @@ ALEPH_TINY = ModelConfig()
 
 @dataclass(frozen=True)
 class TrainConfig:
-    """The optimization budget — the second half of the locked spec.
-
-    Locked plan: over-train the tiny MoE on ~20B tokens of code. That's ~120×
-    total params / ~410× active — well past Chinchilla, deliberately. For a code
-    *completion* model you'll serve, over-training a small net buys a strong
-    model whose inference stays cheap (small active count). TinyLlama/StarCoder
-    playbook.
-    """
-
     total_tokens: int = 20_000_000_000
     seq_len: int = 2048
     dataset: str = "bigcode/starcoderdata"
@@ -131,11 +109,6 @@ MODAL_GPUS = {
 
 
 def estimate_cost(model: ModelConfig, train: TrainConfig, gpu: str, mfu: float = 0.35):
-    """Rough wall-clock + dollar cost of a training run on a Modal GPU.
-
-    Training FLOPs ≈ 6 · active_params · tokens  (the 6 = fwd + bwd + weight
-    update, and active_params because MoE only fires top_k experts per token).
-    """
     peak_tflops, usd_per_hour = MODAL_GPUS[gpu]
     flops = 6 * model.active_params * train.total_tokens
     seconds = flops / (peak_tflops * 1e12 * mfu)

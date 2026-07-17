@@ -9,14 +9,6 @@ from aleph.model.ffn import FeedForward
 
 
 class MoEStats(NamedTuple):
-    """Side outputs of one MoE layer, threaded up to the training loop.
-
-    The two losses come back *unweighted* — TrainConfig's coefficients scale them
-    where the total loss is assembled. load_fraction is for logging only: falling
-    task loss alone can't detect router collapse (all tokens stampeding to one
-    expert), so we watch the per-expert load from step one.
-    """
-
     load_balance_loss: jax.Array
     router_z_loss: jax.Array
     load_fraction: jax.Array
@@ -29,28 +21,6 @@ def _apply_experts(expert: FeedForward, x: jax.Array) -> jax.Array:
 
 
 class MoE(nnx.Module):
-    """Top-k Mixture-of-Experts feed-forward layer with capacity + token dropping.
-
-    A drop-in replacement for a block's single FeedForward sublayer: instead of
-    one FFN every token pays for, we keep E experts and let a tiny learned router
-    send each token to only its top-k. The residual structure around it is
-    unchanged — only what happens inside the FFN box changes.
-
-    Exactly two sets of learned weights live here: the router (dim → E) and the E
-    experts (SwiGLU FFNs from ffn.py). Everything between them — dispatch and
-    combine — is weightless: a one-hot routing tensor and two einsums that move
-    tokens to experts and blend the results back. The router decides; dispatch and
-    combine are the conveyor belts.
-
-    Args:
-        dim:             model / residual width.
-        n_experts:       number of experts, E. Only ``top_k`` of them fire per token.
-        top_k:           experts fired per token. 1 → Switch-style; 2 → Mixtral-style.
-        ffn_hidden:      SwiGLU inner width of each expert (see ffn.py).
-        capacity_factor: slots per expert = ceil(capacity_factor · N / E), N = tokens.
-                         >1 leaves slack; tokens past an expert's slots are dropped.
-    """
-
     def __init__(
         self,
         dim: int,

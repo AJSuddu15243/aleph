@@ -4,29 +4,6 @@ from flax import nnx
 
 
 class Embedding(nnx.Module):
-    """Token embedding + LM head, sharing one matrix when weights are tied.
-
-    One matrix ``E`` of shape ``(vocab_size, dim)`` is the whole dictionary that
-    maps tokens ↔ vectors, read in two directions:
-
-      • ``encode(ids)`` — a *gather*. Token 42 grabs row 42. No matmul.
-      • ``decode(h)``   — a *matmul* ``h @ Eᵀ`` turning each dim-vector back into
-                          one logit per vocab word (the LM head / unembed).
-
-    When ``tie_embeddings`` is True (the default) both directions use the *same*
-    ``E`` — 25.7M params here on the gpt2 vocab, so tying saves a full second
-    copy (~15% of the whole tiny model) for free. ``nnx.Embed.attend`` does the
-    tied unembed for us. Untied, a separate bias-free ``Linear`` is the head.
-
-    No positional information lives here — position is injected by RoPE inside
-    attention. This module is pure token identity.
-
-    Init note: Flax's default embedding init is unit-variance, which is too hot
-    for a *tied* head — with RMSNorm feeding decode, initial logits would have
-    std ≈ √dim and blow the softmax into a peaky, high-loss corner. We override
-    to normal(0.02), the GPT-2 / nanoGPT recipe, keeping init logits small.
-    """
-
     def __init__(
         self,
         vocab_size: int,
