@@ -50,9 +50,7 @@ class Block(nnx.Module):
         )
 
     def __call__(self, x: jax.Array) -> tuple[jax.Array, MoEStats]:
-        # Attention sublayer: norm a copy, attend, add the delta back to the stream.
         x = x + self.attn(self.attn_norm(x))
-        # MoE sublayer: same shape in/out; catch the routing stats to thread up.
         moe_out, stats = self.moe(self.moe_norm(x))
         x = x + moe_out
         return x, stats

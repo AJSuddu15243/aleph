@@ -39,7 +39,6 @@ class Embedding(nnx.Module):
         init = nnx.initializers.normal(stddev=0.02)
 
         self.tok = nnx.Embed(vocab_size, dim, embedding_init=init, rngs=rngs)
-        # Untied: an independent output projection. Tied: none — decode reuses E.
         self.head = (
             None
             if tie_embeddings
@@ -47,11 +46,8 @@ class Embedding(nnx.Module):
         )
 
     def encode(self, ids: jax.Array) -> jax.Array:
-        # ids: (B, T) int token ids → (B, T, dim) vectors. Pure lookup.
         return self.tok(ids)
 
     def decode(self, h: jax.Array) -> jax.Array:
-        # h: (B, T, dim) → (B, T, vocab_size) logits, in float32 so the
-        # downstream softmax / cross-entropy stays stable under bf16 compute.
         logits = self.tok.attend(h) if self.head is None else self.head(h)
         return logits.astype(jnp.float32)

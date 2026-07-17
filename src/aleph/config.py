@@ -14,27 +14,21 @@ class ModelConfig:
                         only fires k experts per token, in fwd AND bwd).
     """
 
-    # ── core dimensions ──────────────────────────────────────────────────────
-    dim: int = 512               # residual / model width
-    n_layers: int = 8            # decoder blocks stacked
-    vocab_size: int = 50257      # tiktoken gpt2 vocab
+    dim: int = 512
+    n_layers: int = 8
+    vocab_size: int = 50257
 
-    # ── attention (GQA) ──────────────────────────────────────────────────────
-    n_q_heads: int = 8           # query heads (H).  dim = H · head_dim
-    n_kv_heads: int = 2          # shared K/V heads (G).  8→ MHA, 1→ MQA, 2→ GQA
-    head_dim: int = 64           # width of one head
-    rope_base: float = 10000.0   # RoPE frequency base (raise for longer context)
+    n_q_heads: int = 8
+    n_kv_heads: int = 2
+    head_dim: int = 64
+    rope_base: float = 10000.0
 
-    # ── feed-forward / MoE ───────────────────────────────────────────────────
-    ffn_hidden: int = 1408       # SwiGLU inner width ≈ (8/3)·dim, rounded to 128·11
-    n_experts: int = 8           # experts per MoE layer (drives TOTAL params)
-    top_k: int = 1               # experts fired per token (drives ACTIVE params); 1→2 later
-    capacity_factor: float = 1.25  # slots per expert = cf · tokens / n_experts. >1 leaves
-    #                              # slack so a slightly-overloaded expert doesn't drop tokens;
-    #                              # overflow beyond capacity is dropped (residual carries it).
+    ffn_hidden: int = 1408
+    n_experts: int = 8
+    top_k: int = 1
+    capacity_factor: float = 1.25
 
-    # ── misc ─────────────────────────────────────────────────────────────────
-    tie_embeddings: bool = True  # share embed & LM-head matrix — halves the 25.7M vocab tax
+    tie_embeddings: bool = True
     rms_eps: float = 1e-6
 
     def __post_init__(self):
@@ -42,17 +36,15 @@ class ModelConfig:
         assert self.n_q_heads % self.n_kv_heads == 0, "n_q_heads must be a multiple of n_kv_heads"
         assert self.top_k <= self.n_experts
 
-    # ── derived sizes (so the config documents its own param budget) ──────────
     @property
     def _attn_params(self) -> int:
-        # W_q, W_o are dim×(H·d_h); W_k, W_v are dim×(G·d_h). All bias-free.
         q = self.dim * self.n_q_heads * self.head_dim
         kv = self.dim * self.n_kv_heads * self.head_dim
         return 2 * q + 2 * kv
 
     @property
     def _expert_params(self) -> int:
-        return 3 * self.dim * self.ffn_hidden          # SwiGLU: w_gate, w_up, w_down
+        return 3 * self.dim * self.ffn_hidden
 
     @property
     def _embed_params(self) -> int:
@@ -63,8 +55,8 @@ class ModelConfig:
     def total_params(self) -> int:
         """Every param on the GPU — sets the training memory footprint."""
         per_block = self._attn_params + self.n_experts * self._expert_params
-        per_block += self.dim * self.n_experts          # router logits
-        per_block += 2 * self.dim                       # two RMSNorm scales
+        per_block += self.dim * self.n_experts
+        per_block += 2 * self.dim
         return self.n_layers * per_block + self._embed_params + self.dim
 
     @property
@@ -74,7 +66,6 @@ class ModelConfig:
         return self.n_layers * per_block + self._embed_params + self.dim
 
 
-# The locked starter. Import this everywhere until we deliberately scale.
 ALEPH_TINY = ModelConfig()
 
 
@@ -89,31 +80,25 @@ class TrainConfig:
     playbook.
     """
 
-    # ── data / token budget ──────────────────────────────────────────────────
-    total_tokens: int = 20_000_000_000     # 20B — the whole training budget
-    seq_len: int = 2048                     # context window (code likes long-ish)
-    dataset: str = "bigcode/starcoderdata"  # HF code corpus (~250B tokens on tap)
+    total_tokens: int = 20_000_000_000
+    seq_len: int = 2048
+    dataset: str = "bigcode/starcoderdata"
 
-    # ── batching (global = per optimizer step; the loop micro-batches to fit) ─
-    batch_size: int = 256                   # sequences per optimizer step
+    batch_size: int = 256
 
-    # ── optimizer: AdamW ─────────────────────────────────────────────────────
-    peak_lr: float = 6e-4                   # nanoGPT-tested for this scale
-    min_lr_ratio: float = 0.1               # cosine floor = 0.1·peak
-    warmup_steps: int = 1000                # linear 0→peak, then cosine decay
+    peak_lr: float = 6e-4
+    min_lr_ratio: float = 0.1
+    warmup_steps: int = 1000
     weight_decay: float = 0.1
     adam_b1: float = 0.9
-    adam_b2: float = 0.95                    # 0.95 not 0.999 — the LLM convention
+    adam_b2: float = 0.95
     adam_eps: float = 1e-8
-    grad_clip: float = 1.0                   # clip global grad norm
+    grad_clip: float = 1.0
 
-    # ── MoE auxiliary losses (weights live here; they're an optimization term) ─
-    aux_loss_coef: float = 1e-2             # load-balance loss (Switch-style)
-    router_z_loss_coef: float = 1e-3        # keep router logits from exploding
-    # (capacity_factor joins here when we build moe.py — it's a dispatch knob.)
+    aux_loss_coef: float = 1e-2
+    router_z_loss_coef: float = 1e-3
 
-    # ── misc ─────────────────────────────────────────────────────────────────
-    compute_dtype: str = "bfloat16"         # bf16 compute + fp32 master weights
+    compute_dtype: str = "bfloat16"
     seed: int = 0
 
     def __post_init__(self):
@@ -132,21 +117,10 @@ class TrainConfig:
         return self.peak_lr * self.min_lr_ratio
 
 
-# The locked training budget. Pairs with ALEPH_TINY.
 ALEPH_TINY_TRAIN = TrainConfig()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Cost estimation — the Modal pricing analysis, captured as code so we can
-# re-run it against measured MFU after the first smoke test instead of guessing.
-#
-# Rates confirmed from modal.com/pricing (per-second × 3600). Peak = bf16 dense
-# TFLOP/s. MFU (how much of that peak a tiny model actually realizes) is the big
-# unknown — pass the measured value once we have it.
-# ─────────────────────────────────────────────────────────────────────────────
-
 MODAL_GPUS = {
-    #        peak bf16 TFLOP/s,  $/hr
     "h100":     (990.0, 3.95),
     "l40s":     (362.0, 1.95),
     "a100-80":  (312.0, 2.50),

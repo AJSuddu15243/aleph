@@ -49,32 +49,19 @@ class Aleph(nnx.Module):
             tie_embeddings=cfg.tie_embeddings,
             rngs=rngs,
         )
-        # nnx.data marks the list as a pytree (data) attribute so each Block's
-        # params are tracked state; a bare list would be treated as static config.
         self.layers = nnx.data([Block(cfg, rngs=rngs) for _ in range(cfg.n_layers)])
         self.final_norm = RMSNorm(cfg.dim, eps=cfg.rms_eps)
 
     def __call__(self, ids: jax.Array) -> tuple[jax.Array, MoEStats]:
-        # Token ids → vectors. Position is injected later by RoPE inside attention,
-        # so nothing positional happens here.
-        x = self.embed.encode(ids)                       # (B, T, dim)
+        x = self.embed.encode(ids)
 
-        # Walk the stack. Each block returns the updated stream plus its own MoE
-        # routing stats; keep the stream, stash one MoEStats per layer.
         per_layer: list[MoEStats] = []
         for layer in self.layers:
-            x, stats = layer(x)                          # (B, T, dim), MoEStats
+            x, stats = layer(x)
             per_layer.append(stats)
 
-        # Normalize the un-normed stream once before projecting to vocab logits.
-        x = self.final_norm(x)                           # (B, T, dim)
-        logits = self.embed.decode(x)                    # (B, T, vocab), fp32
+        x = self.final_norm(x)
+        logits = self.embed.decode(x)
 
-        # Stack the per-layer stats along a new leading n_layers axis. MoEStats is
-        # a NamedTuple (a pytree), so one tree.map lifts every field at once:
-        #   load_balance_loss/router_z_loss/overflow_fraction → (n_layers,)
-        #   load_fraction                                      → (n_layers, E)
-        # The loop then sums/means across layer 0 in a single reduction instead of
-        # bookkeeping per layer.
         stats = jax.tree.map(lambda *s: jnp.stack(s), *per_layer)
         return logits, stats
