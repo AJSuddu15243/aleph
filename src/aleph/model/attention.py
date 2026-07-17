@@ -4,14 +4,6 @@ from flax import nnx
 
 
 def rope_tables(seq_len: int, head_dim: int, base: float = 10000.0):
-    """Precompute the cos/sin rotation tables for positions 0..seq_len-1.
-
-    We don't rotate all `head_dim` numbers by one angle. Instead we pair the
-    dimensions up and give each pair its own rotation *speed*: early pairs spin
-    fast (they track fine, local position), later pairs spin slowly (they track
-    coarse, long-range position). `base` sets how fast those speeds fall off —
-    raise it to stretch RoPE over longer contexts.
-    """
     inv_freq = base ** (-jnp.arange(0, head_dim, 2, dtype=jnp.float32) / head_dim)
 
     pos = jnp.arange(seq_len, dtype=jnp.float32)
@@ -23,21 +15,12 @@ def rope_tables(seq_len: int, head_dim: int, base: float = 10000.0):
 
 
 def rotate_half(x: jax.Array) -> jax.Array:
-    """Rotate the vector 90° in each dimension-pair: [a, b] → [-b, a].
-
-    This is the partner of the cos/sin tables. A 2-D rotation by θ is
-        x·cos(θ) + rotate_half(x)·sin(θ)
-    and doing it this "split in half" way (instead of interleaving pairs) is
-    just a layout choice — it's the Llama/HF convention, and it vectorizes
-    cleanly because the whole first half maps to the whole second half.
-    """
     half = x.shape[-1] // 2
     x1, x2 = x[..., :half], x[..., half:]
     return jnp.concatenate([-x2, x1], axis=-1)
 
 
 def apply_rope(x: jax.Array, cos: jax.Array, sin: jax.Array) -> jax.Array:
-    """Rotate q or k by position.  x: (B, T, n_heads, head_dim)."""
     dtype = x.dtype
     x = x.astype(jnp.float32)
     cos = cos[None, :, None, :]
@@ -47,26 +30,6 @@ def apply_rope(x: jax.Array, cos: jax.Array, sin: jax.Array) -> jax.Array:
 
 
 class Attention(nnx.Module):
-    """Causal grouped-query self-attention with RoPE.
-
-    One knob, `n_kv_heads`, spans the whole family:
-        n_kv_heads == n_q_heads   → plain multi-head attention (MHA)
-        n_kv_heads == 1           → multi-query attention (MQA)
-        in between                → grouped-query attention (GQA)
-
-    Every query head asks its own question (its own W_q), but several query
-    heads *share* one key/value table. Sharing K/V is what shrinks the KV cache
-    at decode time — the thing we stream from memory for every generated token —
-    without touching the queries, where the model's expressive power actually
-    lives.
-
-    Args:
-        dim:         model / residual width.
-        n_q_heads:   number of query heads (H).
-        n_kv_heads:  number of shared key/value heads (G). Must divide n_q_heads.
-        head_dim:    width of one head. Defaults to dim // n_q_heads.
-        rope_base:   RoPE frequency base (raise for longer contexts).
-    """
 
     def __init__(
         self,
